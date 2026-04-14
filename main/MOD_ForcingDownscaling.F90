@@ -94,7 +94,11 @@ CONTAINS
                   ! non-adjusted forcing
                   forc_topo_g ,forc_maxelv_g ,forc_t_g   ,forc_th_g  ,forc_q_g     ,&
                   forc_pbot_g ,forc_rho_g    ,forc_prc_g ,forc_prl_g ,forc_lwrad_g ,&
-                  forc_hgt_g  ,forc_swrad_g  ,forc_us_g  ,forc_vs_g  , &
+                  forc_hgt_g  ,forc_swrad_g  ,                                      &
+#ifdef CCPL 
+                  forc_sols_g ,forc_soll_g   ,forc_solsd_g ,forc_solld_g,           &
+#endif 
+                  forc_us_g  ,forc_vs_g  , &
 
                   ! topography-based factor on patch
                   slp_type_c, asp_type_c, cur_c, &
@@ -105,6 +109,9 @@ CONTAINS
                   ! adjusted forcing
                   forc_topo_c ,forc_t_c   ,forc_th_c  ,forc_q_c     ,forc_pbot_c ,&
                   forc_rho_c  ,forc_prc_c ,forc_prl_c ,forc_lwrad_c, forc_swrad_c, &
+#ifdef CCPL 
+                  forc_sols_c ,forc_soll_c ,forc_solsd_c , forc_solld_c,         &
+#endif 
                   forc_us_c   ,forc_vs_c, &
 
                   ! optional parameters for full downscaling
@@ -176,6 +183,12 @@ CONTAINS
    real(r8), intent(in) :: forc_hgt_g    ! atmospheric reference height [m]
    real(r8), intent(in) :: forc_us_g     ! eastward wind [m/s]
    real(r8), intent(in) :: forc_vs_g     ! northward wind [m/s]
+#ifdef CCPL 
+   real(r8), intent(in) :: forc_sols_g
+   real(r8), intent(in) :: forc_soll_g
+   real(r8), intent(in) :: forc_solsd_g
+   real(r8), intent(in) :: forc_solld_g
+#endif 
 
    ! downscaled fields:
    real(r8), intent(in)  :: forc_topo_c  ! column surface height [m]
@@ -188,6 +201,12 @@ CONTAINS
    real(r8), intent(out) :: forc_prl_c   ! column large-scale precipitation [mm/s]
    real(r8), intent(out) :: forc_lwrad_c ! column downward longwave [W/m**2]
    real(r8), intent(out) :: forc_swrad_c ! column downward shortwave [W/m**2]
+#ifdef CCPL
+   real(r8), intent(out) :: forc_sols_c
+   real(r8), intent(out) :: forc_soll_c
+   real(r8), intent(out) :: forc_solsd_c
+   real(r8), intent(out) :: forc_solld_c
+#endif
    real(r8), intent(out) :: forc_us_c    ! column eastward wind [m/s]
    real(r8), intent(out) :: forc_vs_c    ! column northward wind [m/s]
 
@@ -290,7 +309,13 @@ CONTAINS
          ! Simple downscaling
          CALL downscale_shortwave_simple(&
                         forc_topo_g, forc_pbot_g, forc_swrad_g, &
+#ifdef CCPL 
+                        forc_sols_g, forc_soll_g, forc_solsd_g, forc_solld_g, &
+#endif 
                         forc_topo_c, forc_pbot_c, forc_swrad_c, &
+#ifdef CCPL 
+                        forc_sols_c, forc_soll_c, forc_solsd_c, forc_solld_c, &
+#endif 
                         julian_day, coszen, cosazi, &
                         slp_type_c, asp_type_c)
       ENDIF
@@ -882,7 +907,13 @@ CONTAINS
 !-----------------------------------------------------------------------------
    SUBROUTINE downscale_shortwave_simple( &
                         forc_topo_g, forc_pbot_g, forc_swrad_g, &
+#ifdef CCPL 
+                        forc_sols_g, forc_soll_g, forc_solsd_g, forc_solld_g, &
+#endif 
                         forc_topo_c, forc_pbot_c, forc_swrad_c, &
+#ifdef CCPL
+                        forc_sols_c, forc_soll_c, forc_solsd_c, forc_solld_c, &
+#endif
                         julian_day, coszen, cosazi, &
                         slp_type_c, area_type_c)
 !-----------------------------------------------------------------------------
@@ -906,10 +937,22 @@ CONTAINS
    real(r8), intent(in) :: forc_topo_g         ! atmospheric surface height (m)
    real(r8), intent(in) :: forc_pbot_g         ! atmospheric pressure [Pa]
    real(r8), intent(in) :: forc_swrad_g        ! downward shortwave (W/m**2)
+#ifdef CCPL 
+   real(r8), intent(in) :: forc_sols_g
+   real(r8), intent(in) :: forc_soll_g
+   real(r8), intent(in) :: forc_solsd_g
+   real(r8), intent(in) :: forc_solld_g
+#endif 
 
    real(r8), intent(in) :: forc_topo_c         ! column surface height (m)
    real(r8), intent(in) :: forc_pbot_c         ! atmospheric pressure [Pa]
    real(r8), intent(out):: forc_swrad_c        ! downward shortwave (W/m**2)
+#ifdef CCPL 
+   real(r8), intent(out) :: forc_sols_c
+   real(r8), intent(out) :: forc_soll_c
+   real(r8), intent(out) :: forc_solsd_c
+   real(r8), intent(out) :: forc_solld_c
+#endif
 
    ! tan value of topographic slope of each direction of one patch
    real(r8), intent(in) :: slp_type_c (1:num_aspect_type)
@@ -938,6 +981,10 @@ CONTAINS
    real(r8) :: diff_swrad_c, beam_swrad_c              ! downscaled diffuse, beam radiation
                                                        
    real(r8) :: beam_swrad_type (1:num_aspect_type)      ! beam radiation of one characterized patch
+#ifdef CCPL
+   real(r8) :: beam_sols_type  (1:num_aspect_type)
+   real(r8) :: beam_soll_type  (1:num_aspect_type)
+#endif 
    real(r8) :: cosill_type     (1:num_aspect_type)      ! illumination angle (cos) at defined types
 
    integer  :: i
@@ -1021,13 +1068,28 @@ CONTAINS
          IF (a_p.gt.1.0) a_p = 1
          IF (a_p.lt.0) a_p = 0
          beam_swrad_type(i) = cosill_type(i)*opt_factor*a_p*beam_swrad_g
+#ifdef CCPL 
+         beam_sols_type(i)  = cosill_type(i)*opt_factor*a_p*forc_sols_g
+         beam_soll_type(i)  = cosill_type(i)*opt_factor*a_p*forc_soll_g
+#endif
       ENDDO
       beam_swrad_c = sum(beam_swrad_type)
+#ifdef CCPL 
+      forc_sols_c  = sum(beam_sols_type)
+      forc_soll_c  = sum(beam_soll_type)
+#endif 
 
       ! do not downscale diffuse radiation
       diff_swrad_c = diff_swrad_g
+#ifdef CCPL 
+      forc_solsd_c = forc_solsd_g
+      forc_solld_c = forc_solld_g
+#endif 
 
       forc_swrad_c = beam_swrad_c+diff_swrad_c
+#ifdef CCPL 
+      forc_swrad_c = forc_sols_c + forc_soll_c + forc_solsd_c + forc_solld_c
+#endif 
 
       ! But ensure that we don't depart too far from the atmospheric forcing value:
       ! negative values of swrad are certainly bad, but small positive values might
@@ -1041,6 +1103,25 @@ CONTAINS
                forc_swrad_g * (1._r8 - shortwave_downscaling_limit))
       ! Ensure that the denominator is not 0 during shortwave normalization
       IF (forc_swrad_c < 1.e-4) forc_swrad_c = 0.0001
+
+#ifdef CCPL 
+      forc_sols_c = min(forc_sols_c, &
+               forc_sols_g * (1._r8 + shortwave_downscaling_limit))
+      forc_sols_c = max(forc_sols_c, &
+               forc_sols_g * (1._r8 + shortwave_downscaling_limit))
+      ! Ensure that the denominator is not 0 during shortwave normalization
+      IF (forc_sols_c < 1.e-4) forc_sols_c = 0.0001
+
+      forc_soll_c = min(forc_soll_c, &
+               forc_soll_g * (1._r8 + shortwave_downscaling_limit))
+      forc_soll_c = max(forc_soll_c, &
+               forc_soll_g * (1._r8 + shortwave_downscaling_limit))
+      ! Ensure that the denominator is not 0 during shortwave normalization
+      IF (forc_soll_c < 1.e-4) forc_soll_c = 0.0001
+
+      IF (forc_solsd_c < 1.e-4) forc_solsd_c = 0.0001
+      IF (forc_solld_c < 1.e-4) forc_solld_c = 0.0001
+#endif
 
    END SUBROUTINE downscale_shortwave_simple
 

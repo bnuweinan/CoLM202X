@@ -6,6 +6,7 @@ MODULE MOD_Vars_2DForcing
 !
 !  Created by Yongjiu Dai, 03/2014
 !-----------------------------------------------------------------------
+#ifndef CCPL 
 
    USE MOD_DataType
    IMPLICIT NONE
@@ -76,6 +77,109 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE allocate_2D_Forcing
+
+#else
+
+   USE MOD_Precision
+   IMPLICIT NONE
+   SAVE
+
+!-----------------------------------------------------------------------
+   real(r8), allocatable :: forc_xy_pco2m(:)
+   real(r8), allocatable :: forc_xy_po2m(:)
+   real(r8), allocatable :: forc_xy_us(:)
+   real(r8), allocatable :: forc_xy_vs(:)
+   real(r8), allocatable :: forc_xy_t(:)
+   real(r8), allocatable :: forc_xy_q(:)
+   real(r8), allocatable :: forc_xy_prc(:)
+   real(r8), allocatable :: forc_xy_prl(:)
+   real(r8), allocatable :: forc_xy_psrf(:)
+   real(r8), allocatable :: forc_xy_pbot(:)
+   real(r8), allocatable :: forc_xy_sols(:)
+   real(r8), allocatable :: forc_xy_soll(:)
+   real(r8), allocatable :: forc_xy_solsd(:)
+   real(r8), allocatable :: forc_xy_solld(:)
+   real(r8), allocatable :: forc_xy_solarin(:)
+   real(r8), allocatable :: forc_xy_frl(:)
+   real(r8), allocatable :: forc_xy_hgt_u(:)
+   real(r8), allocatable :: forc_xy_hgt_t(:)
+   real(r8), allocatable :: forc_xy_hgt_q(:)
+   real(r8), allocatable :: forc_xy_hpbl(:)
+   real(r8), allocatable :: forc_xy_srflag(:)
+   real(r8), allocatable :: topo_grid(:)
+
+   ! PUBLIC MEMBER FUNCTIONS:
+   PUBLIC :: allocate_atm_Forcing
+
+CONTAINS
+
+!----------------------------------------------------------------------
+
+   SUBROUTINE allocate_atm_Forcing (numelm_atm)
+   ! -------------------------------------------------------------------
+   ! Allocates memory for atmospheric forcing variables from atm models.
+   ! Note that numelm_atm = 0 for non-IO proc, but still need to execute "allocate" statement due to CCPL use.
+   ! -------------------------------------------------------------------
+
+   use MOD_SPMD_Task
+   use MOD_Vars_Global
+   IMPLICIT NONE
+
+   integer, intent(in) :: numelm_atm
+
+         allocate (forc_xy_pco2m  (numelm_atm))
+         allocate (forc_xy_po2m   (numelm_atm))
+         allocate (forc_xy_us     (numelm_atm))
+         allocate (forc_xy_vs     (numelm_atm))
+         allocate (forc_xy_t      (numelm_atm))
+         allocate (forc_xy_q      (numelm_atm))
+         allocate (forc_xy_prc    (numelm_atm))
+         allocate (forc_xy_prl    (numelm_atm))
+         allocate (forc_xy_psrf   (numelm_atm))
+         allocate (forc_xy_pbot   (numelm_atm))
+         allocate (forc_xy_sols   (numelm_atm))
+         allocate (forc_xy_soll   (numelm_atm))
+         allocate (forc_xy_solsd  (numelm_atm))
+         allocate (forc_xy_solld  (numelm_atm))
+         allocate (forc_xy_solarin(numelm_atm))
+         allocate (forc_xy_frl    (numelm_atm))
+         allocate (forc_xy_hgt_u  (numelm_atm))
+         allocate (forc_xy_hgt_t  (numelm_atm))
+         allocate (forc_xy_hgt_q  (numelm_atm))
+         allocate (forc_xy_hpbl   (numelm_atm))
+         allocate (forc_xy_srflag (numelm_atm))
+         allocate (topo_grid      (numelm_atm))
+
+      IF (p_is_io) THEN 
+
+         forc_xy_pco2m = spval
+         forc_xy_po2m = spval
+         forc_xy_us = spval
+         forc_xy_vs = spval
+         forc_xy_t = spval
+         forc_xy_q = spval
+         forc_xy_prc = spval
+         forc_xy_prl = spval
+         forc_xy_psrf = spval
+         forc_xy_pbot = spval
+         forc_xy_sols = spval
+         forc_xy_soll = spval
+         forc_xy_solsd = spval
+         forc_xy_solld = spval
+         forc_xy_solarin = spval
+         forc_xy_frl = spval
+         forc_xy_hgt_u = spval
+         forc_xy_hgt_t = spval
+         forc_xy_hgt_q = spval
+         forc_xy_hpbl = spval
+         forc_xy_srflag = spval
+         topo_grid = spval
+
+      END IF 
+
+   END SUBROUTINE allocate_atm_Forcing
+
+#endif
 
 END MODULE MOD_Vars_2DForcing
 ! ---------- EOP ------------

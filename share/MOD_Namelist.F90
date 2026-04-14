@@ -129,6 +129,10 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_CatchmentMesh_data = 'path/to/catchment/data'
 
    character(len=256) :: DEF_file_mesh_filter   = 'path/to/mesh/filter'
+#ifdef CCPL
+   character(len=256) :: DEF_file_mesh_atm      = 'path/to/mesh_atm/file'
+   character(len=256) :: DEF_file_mesh_atm2     = 'path/to/mesh_atm2/file'
+#endif
 
    ! ----- Use surface data from existing dataset -----
    ! case 1: from a larger region
@@ -1079,6 +1083,10 @@ CONTAINS
       DEF_GRIDBASED_lat_res,                  &
       DEF_CatchmentMesh_data,                 &
       DEF_file_mesh_filter,                   &
+#ifdef CCPL 
+      DEF_file_mesh_atm,                      &
+      DEF_file_mesh_atm2,                     &
+#endif
 
       DEF_USE_LCT,                            &
       DEF_USE_PFT,                            &
@@ -1188,6 +1196,12 @@ CONTAINS
       DEF_USE_SoilInit,                       &
       DEF_file_SoilInit,                      &
 
+      DEF_USE_SnowInit,                       &
+      DEF_file_SnowInit,                      &
+
+      DEF_USE_CN_INIT,                        &
+      DEF_file_cn_init,                       &
+
       DEF_HighResSoil,                        &
       DEF_HighResVeg,                         &
       DEF_PROSPECT,                           &
@@ -1196,12 +1210,6 @@ CONTAINS
       ! DEF_file_soiloptics,                    &
       ! DEF_file_satellite_params,              &
       ! DEF_sla_varname,                        &
-
-      DEF_USE_SnowInit,                       &
-      DEF_file_SnowInit,                      &
-
-      DEF_USE_CN_INIT,                        &
-      DEF_file_cn_init,                       &
 
       DEF_USE_WaterTableInit,                 &
       DEF_file_WaterTable,                    &
@@ -1609,6 +1617,13 @@ CONTAINS
          ENDIF
 #endif
 
+! ----- C-Coupler related ----- Macros&Namelist conflicts and dependency management
+
+#ifdef CCPL
+         DEF_HIST_WriteBack  = .false.
+         DEF_Forcing_Interp_Method = 'arealweight'
+#endif
+
 ! ----- [Complement IF needed] ----- Macros&Namelist conflicts and dependency management
 
 
@@ -1674,6 +1689,10 @@ CONTAINS
 #endif
 
       CALL mpi_bcast (DEF_file_mesh_filter                   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#ifdef CCPL
+      CALL mpi_bcast (DEF_file_mesh_atm                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_mesh_atm2                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#endif
 
       CALL mpi_bcast (DEF_dir_existing_srfdata               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (USE_srfdata_from_larger_region         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)

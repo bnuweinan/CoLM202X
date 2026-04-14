@@ -21,7 +21,12 @@ MODULE MOD_Forcing
    USE MOD_Precision
    USE MOD_Namelist
    USE MOD_Grid
+#ifdef CCPL
+   USE MOD_SpatialMapping_atm
+   USE MOD_Mesh_atm
+#else 
    USE MOD_SpatialMapping
+#endif 
    USE MOD_UserSpecifiedForcing
    USE MOD_TimeManager
    USE MOD_SPMD_Task
@@ -33,6 +38,27 @@ MODULE MOD_Forcing
    IMPLICIT NONE
 
    type (grid_type), PUBLIC :: gforc
+#ifdef CCPL
+! Make atm elements for importing MCV variables defined on point-moment grids.
+   integer :: numelm_atm                                       ! only available on IO processes
+   type (irregular_elm_type_atm), allocatable :: mesh_atm (:)  ! only available on IO processes
+
+   integer, allocatable :: nelm_blk_atm(:,:)
+   integer, allocatable :: mesh_atm_pio(:)
+   type(block_data_int32_2d) :: elmid_atm
+
+! Make atm elements for importing MCV variables defined on cell-moment grids. Not used because
+! all required variables from MCV are currently imported from MCV physical package data structure, 
+! which has equivalent sizes with point-moment grids.
+   type (grid_type), PUBLIC :: gforc2 
+   integer :: numelm_atm2                                       ! only available on IO processes
+   type (irregular_elm_type_atm), allocatable :: mesh_atm2 (:)  ! only available on IO processes
+
+   integer, allocatable :: nelm_blk_atm2 (:,:)
+   integer, allocatable :: mesh_atm_pio2 (:)
+   type(block_data_int32_2d) :: elmid_atm2
+   type (spatial_mapping_type) :: mg2p_forc2  ! area weighted mapping from forcing to model unit
+#endif
 
    type (spatial_mapping_type) :: mg2p_forc   ! area weighted mapping from forcing to model unit
 
@@ -40,7 +66,11 @@ MODULE MOD_Forcing
    logical, allocatable :: forcmask_pch (:)
 
    ! for Forcing_Downscaling
+#ifdef CCPL
+   real(r8), allocatable     :: maxelv_grid(:)
+#else
    type(block_data_real8_2d) :: topo_grid, maxelv_grid
+#endif
 
    type(pointer_real8_1d), allocatable :: forc_topo_grid   (:)
    type(pointer_real8_1d), allocatable :: forc_maxelv_grid (:)
@@ -54,6 +84,10 @@ MODULE MOD_Forcing
    type(pointer_real8_1d), allocatable :: forc_prl_grid    (:)
    type(pointer_real8_1d), allocatable :: forc_lwrad_grid  (:)
    type(pointer_real8_1d), allocatable :: forc_swrad_grid  (:)
+   type(pointer_real8_1d), allocatable :: forc_sols_grid   (:)
+   type(pointer_real8_1d), allocatable :: forc_soll_grid   (:)
+   type(pointer_real8_1d), allocatable :: forc_solsd_grid  (:)
+   type(pointer_real8_1d), allocatable :: forc_solld_grid  (:)
    type(pointer_real8_1d), allocatable :: forc_hgt_grid    (:)
    type(pointer_real8_1d), allocatable :: forc_us_grid     (:)
    type(pointer_real8_1d), allocatable :: forc_vs_grid     (:)
@@ -67,6 +101,10 @@ MODULE MOD_Forcing
    type(pointer_real8_1d), allocatable :: forc_prl_part    (:)
    type(pointer_real8_1d), allocatable :: forc_frl_part    (:)
    type(pointer_real8_1d), allocatable :: forc_swrad_part  (:)
+   type(pointer_real8_1d), allocatable :: forc_sols_part   (:)
+   type(pointer_real8_1d), allocatable :: forc_soll_part   (:)
+   type(pointer_real8_1d), allocatable :: forc_solsd_part  (:)
+   type(pointer_real8_1d), allocatable :: forc_solld_part  (:)
    type(pointer_real8_1d), allocatable :: forc_us_part     (:)
    type(pointer_real8_1d), allocatable :: forc_vs_part     (:)
 
@@ -162,6 +200,7 @@ CONTAINS
 
       CALL metread_latlon (dir_forcing, idate)
 
+#ifndef CCPL 
       IF (p_is_io) THEN
 
          IF (allocated(forcn   )) deallocate(forcn   )
@@ -186,6 +225,7 @@ CONTAINS
 #endif
 
       ENDIF
+#endif 
 
       IF (p_is_worker) THEN
          IF (numpatch > 0) THEN
@@ -213,33 +253,46 @@ CONTAINS
       ENDIF
 
       IF (trim(DEF_Forcing_Interp_Method) == 'arealweight') THEN
+#ifdef CCPL 
+         IF (present(lulcc_call)) CALL mg2p_forc%forc_free_mem
+         CALL mg2p_forc%build_arealweighted (gforc, landpatch, elmid_atm, mesh_atm_pio, &
+                                             numelm_atm, mesh_atm, patchmask)
+#else 
          IF (present(lulcc_call)) CALL mg2p_forc%forc_free_mem
          CALL mg2p_forc%build_arealweighted (gforc, landpatch)
       ELSEIF (trim(DEF_Forcing_Interp_Method) == 'bilinear') THEN
          IF (present(lulcc_call)) CALL mg2p_forc%forc_free_mem
          CALL mg2p_forc%build_bilinear (gforc, landpatch)
+#endif 
       ENDIF
 
+#ifndef CCPL 
       IF (DEF_forcing%has_missing_value) THEN
          CALL mg2p_forc%set_missing_value (metdata, forc_missing_value, forcmask_pch)
       ENDIF
+#endif 
 
       IF (p_is_worker .and. (numpatch > 0)) THEN
         forc_topo = elvmean
         WHERE(forc_topo == spval) forc_topo = 0.
       ENDIF
-
+ 
       IF ((DEF_USE_Forcing_Downscaling).or.(DEF_USE_Forcing_Downscaling_Simple)) THEN
 
+#ifndef CCPL
          IF (p_is_io) CALL allocate_block_data (gforc, topo_grid)
          CALL mg2p_forc%pset2grid (forc_topo, topo_grid, msk = patchmask)
 
          IF (p_is_io) CALL allocate_block_data (gforc, areagrid)
          CALL mg2p_forc%get_sumarea(areagrid, patchmask)
-         CALL block_data_division (topo_grid, areagrid)
+         CALL block_data_division (topo_grid, areagrid) ! this step has been done in CCPL case
 
          IF (p_is_io) CALL allocate_block_data (gforc, maxelv_grid)
          CALL mg2p_forc%pset2grid_max (forc_topo, maxelv_grid, msk = patchmask)
+#else
+         IF (p_is_io) allocate(maxelv_grid(numelm_atm))
+         CALL mg2p_forc%pset2grid_max (forc_topo, maxelv_grid, msk = patchmask)
+#endif
 
 
          CALL mg2p_forc%allocate_part (forc_topo_grid  )
@@ -254,6 +307,10 @@ CONTAINS
          CALL mg2p_forc%allocate_part (forc_prl_grid   )
          CALL mg2p_forc%allocate_part (forc_lwrad_grid )
          CALL mg2p_forc%allocate_part (forc_swrad_grid )
+         CALL mg2p_forc%allocate_part (forc_sols_grid  )
+         CALL mg2p_forc%allocate_part (forc_soll_grid  )
+         CALL mg2p_forc%allocate_part (forc_solsd_grid )
+         CALL mg2p_forc%allocate_part (forc_solld_grid )
          CALL mg2p_forc%allocate_part (forc_hgt_grid   )
          CALL mg2p_forc%allocate_part (forc_us_grid    )
          CALL mg2p_forc%allocate_part (forc_vs_grid    )
@@ -267,10 +324,16 @@ CONTAINS
          CALL mg2p_forc%allocate_part (forc_prl_part   )
          CALL mg2p_forc%allocate_part (forc_frl_part   )
          CALL mg2p_forc%allocate_part (forc_swrad_part )
+         CALL mg2p_forc%allocate_part (forc_sols_part  )
+         CALL mg2p_forc%allocate_part (forc_soll_part  )
+         CALL mg2p_forc%allocate_part (forc_solsd_part )
+         CALL mg2p_forc%allocate_part (forc_solld_part )
          CALL mg2p_forc%allocate_part (forc_us_part    )
          CALL mg2p_forc%allocate_part (forc_vs_part    )
 
+#ifndef CCPL 
          CALL mg2p_forc%grid2part (topo_grid,   forc_topo_grid  )
+#endif 
          CALL mg2p_forc%grid2part (maxelv_grid, forc_maxelv_grid)
 
          IF (p_is_worker .and. (numpatch > 0)) THEN
@@ -349,6 +412,10 @@ CONTAINS
                CALL mg2p_forc%deallocate_part (forc_prl_grid   )
                CALL mg2p_forc%deallocate_part (forc_lwrad_grid )
                CALL mg2p_forc%deallocate_part (forc_swrad_grid )
+               CALL mg2p_forc%deallocate_part (forc_sols_grid  )
+               CALL mg2p_forc%deallocate_part (forc_soll_grid  )
+               CALL mg2p_forc%deallocate_part (forc_solsd_grid )
+               CALL mg2p_forc%deallocate_part (forc_solld_grid )
                CALL mg2p_forc%deallocate_part (forc_hgt_grid   )
                CALL mg2p_forc%deallocate_part (forc_us_grid    )
                CALL mg2p_forc%deallocate_part (forc_vs_grid    )
@@ -362,12 +429,20 @@ CONTAINS
                CALL mg2p_forc%deallocate_part (forc_prl_part   )
                CALL mg2p_forc%deallocate_part (forc_frl_part   )
                CALL mg2p_forc%deallocate_part (forc_swrad_part )
+               CALL mg2p_forc%deallocate_part (forc_sols_part  )
+               CALL mg2p_forc%deallocate_part (forc_soll_part  )
+               CALL mg2p_forc%deallocate_part (forc_solsd_part )
+               CALL mg2p_forc%deallocate_part (forc_solld_part )
                CALL mg2p_forc%deallocate_part (forc_us_part    )
                CALL mg2p_forc%deallocate_part (forc_vs_part    )
 
             ENDIF
          ENDIF
       ENDIF
+
+#ifdef CCPL
+      CALL mesh_atm_free_mem (numelm_atm, mesh_atm, nelm_blk_atm, mesh_atm_pio, elmid_atm)
+#endif
 
    END SUBROUTINE forcing_final
 
@@ -383,7 +458,11 @@ CONTAINS
 
 
 !-----------------------------------------------------------------------
+#ifndef CCPL
    SUBROUTINE read_forcing (idate, dir_forcing, is_spinup)
+#else
+   SUBROUTINE read_forcing (idate, dir_forcing, CoLM_comp_id, is_spinup)
+#endif
    USE MOD_OrbCosazi
    USE MOD_Precision
    USE MOD_Namelist
@@ -401,12 +480,21 @@ CONTAINS
    USE MOD_UserSpecifiedForcing
    USE MOD_ForcingDownscaling, only: rair, cpair, downscale_forcings, downscale_wind, downscale_wind_simple
    USE MOD_NetCDFVector
+#ifdef CCPL
+   USE CCPL_interface_mod
+   USE MOD_Qsadv
+#endif
 
    IMPLICIT NONE
 
    integer, intent(in) :: idate(3)
    character(len=*), intent(in) :: dir_forcing
    logical, intent(in) :: is_spinup
+#ifdef CCPL 
+   integer, intent(in) :: CoLM_comp_id
+   logical :: interface_status
+   real(r8) :: es,esdT,qsat_tmp,dqsat_tmpdT
+#endif
 
    ! local variables:
    integer  :: ivar, istt, iend, id(3)
@@ -414,7 +502,9 @@ CONTAINS
    real(r8) :: calday                             ! Julian cal day (1.xx to 365.xx)
    real(r8) :: sunang, cloud, difrat, vnrat
    real(r8) :: a, hsolar, ratio_rvrf
+#ifndef CCPL 
    type(block_data_real8_2d) :: forc_xy_solarin
+#endif 
    integer  :: ii
    character(10) :: cyear = "2005"
    character(256):: lndname
@@ -429,6 +519,7 @@ CONTAINS
    real(r8), dimension(12, numpatch) :: spaceship !NOTE: 12 is the dimension size of spaceship
    integer target_server, ierr
 
+#ifndef CCPL 
       IF (p_is_io) THEN
          !------------------------------------------------------------
          ! READ in THE ATMOSPHERIC FORCING
@@ -548,7 +639,7 @@ CONTAINS
             CALL block_data_copy (forcn(6), forc_xy_us , sca = 1/sqrt(2.0_r8))
             CALL block_data_copy (forcn(6), forc_xy_vs , sca = 1/sqrt(2.0_r8))
          ELSE
-            IF (.not.trim(DEF_forcing%dataset) == 'CPL7') THEN
+            IF (.not. (trim(DEF_forcing%dataset) == 'CPL7' .or. trim(DEF_forcing%dataset) == 'CCPL')) THEN
                write(6, *) "At least one of the wind components must be provided! STOP!";
             CALL CoLM_stop()
             ENDIF
@@ -654,6 +745,59 @@ CONTAINS
          CALL block_data_copy (forc_xy_pbot, forc_xy_po2m , sca = 0.209_r8     )
 
       ENDIF
+#else 
+      CAll mpi_barrier (p_comm_glb, p_err)
+
+      if (p_is_master) write(6,*) 'receiving atmospheric variables from atm models'
+      interface_status = CCPL_execute_interface_using_name(CoLM_comp_id, "receive_data_from_atm", .false., annotation = "execute interface for CoLM receiving data from atm")
+
+      if (.not. interface_status) then
+         if (p_is_master) write(6,*) 'Error: CoLM failed to receive variables from atm models'
+         call CCPL_abort("Check whether CoLM requested variables have no providers from atm models.")
+      end if 
+
+      if (p_is_io) then
+       
+         do i = 1, numelm_atm
+            if (mesh_atm(i)%landmask == 1) then
+               if (forc_xy_prc(i) < 0.0_r8) then
+                  write(6,*) 'Error: CoLM received negative prc from atm models',forc_xy_prc(i); CAll CoLM_stop()
+               end if
+               if (forc_xy_prl(i) < 0.0_r8) then
+                  write(6,*) 'Error: CoLM received negative prl from atm models',forc_xy_prl(i); CALL CoLM_stop()
+               end if 
+               if (forc_xy_soll(i) < 0.0_r8) then
+                  write(6,*) 'Error: CoLM received negative soll from atm models',forc_xy_soll(i); CALL CoLM_stop()
+               end if
+               if (forc_xy_sols(i) < 0.0_r8) then 
+                  write(6,*) 'Error: CoLM received negative sols from atm models',forc_xy_sols(i); CALL CoLM_stop()
+               end if
+               if (forc_xy_solsd(i) < 0.0_r8) then 
+                  write(6,*) 'Error: CoLM received negative solsd from atm models',forc_xy_solsd(i); CALL CoLM_stop()
+               end if 
+               if (forc_xy_solld(i) < 0.0_r8) then
+                  write(6,*) 'Error: CoLM received negative solld from atm models',forc_xy_solld(i); CALL CoLM_stop()
+               end if 
+               if (forc_xy_hgt_u(i) < 0.0_r8) then 
+                  write(6,*) 'Error: CoLM received negative hgt_u from atm models',forc_xy_hgt_u(i); CALL CoLM_stop()
+               end if 
+               CALL qsadv (forc_xy_t(i), forc_xy_pbot(i), es, esdT, qsat_tmp, dqsat_tmpdT)
+               if (qsat_tmp < forc_xy_q(i)) forc_xy_q(i) = qsat_tmp
+            end if
+         end do 
+
+         forc_xy_hgt_t = forc_xy_hgt_u
+         forc_xy_hgt_q = forc_xy_hgt_u
+
+         ! [GET ATMOSPHERE CO2 CONCENTRATION DATA]
+         year = idate(1)
+         CALL julian2monthday (idate(1), idate(2), month, mday)
+         pco2m = get_monthly_co2_mlo(year, month)*1.e-6
+         forc_xy_pco2m = forc_xy_pbot * pco2m
+         forc_xy_po2m = forc_xy_pbot * 0.209_r8
+
+      end if
+#endif         
 
       IF ((.not. DEF_USE_Forcing_Downscaling).and.(.not. DEF_USE_Forcing_Downscaling_Simple)) THEN
 
@@ -746,8 +890,15 @@ CONTAINS
          CALL mg2p_forc%grid2part (forc_xy_frl  ,   forc_lwrad_grid)
          CALL mg2p_forc%grid2part (forc_xy_hgt_t,   forc_hgt_grid  )
          CALL mg2p_forc%grid2part (forc_xy_solarin, forc_swrad_grid)
+         CALL mg2p_forc%grid2part (forc_xy_sols,    forc_sols_grid )
+         CALL mg2p_forc%grid2part (forc_xy_soll,    forc_soll_grid )
+         CALL mg2p_forc%grid2part (forc_xy_solsd,   forc_solsd_grid)
+         CALL mg2p_forc%grid2part (forc_xy_solld,   forc_solld_grid)
          CALL mg2p_forc%grid2part (forc_xy_us,      forc_us_grid   )
          CALL mg2p_forc%grid2part (forc_xy_vs,      forc_vs_grid   )
+#ifdef CCPL
+         CALL mg2p_forc%grid2part (topo_grid,       forc_topo_grid )
+#endif 
 
          calday = calendarday(idate)
 
@@ -800,6 +951,10 @@ CONTAINS
                         forc_rho_grid(np)%val(ipart),   forc_prc_grid(np)%val(ipart),    &
                         forc_prl_grid(np)%val(ipart),   forc_lwrad_grid(np)%val(ipart),  &
                         forc_hgt_grid(np)%val(ipart),   forc_swrad_grid(np)%val(ipart),  &
+#ifdef CCPL 
+                        forc_sols_grid(np)%val(ipart),  forc_soll_grid(np)%val(ipart),   &
+                        forc_solsd_grid(np)%val(ipart), forc_solld_grid(np)%val(ipart),  &
+#endif
                         forc_us_grid(np)%val(ipart),    forc_vs_grid(np)%val(ipart),     &
 
                         ! topography-based factor on patch
@@ -815,6 +970,10 @@ CONTAINS
                         forc_prc_part(np)%val(ipart),   forc_prl_part(np)%val(ipart),    &
 
                         forc_frl_part(np)%val(ipart),   forc_swrad_part(np)%val(ipart),  &
+#ifdef CCPL 
+                        forc_sols_part(np)%val(ipart),  forc_soll_part(np)%val(ipart),   &
+                        forc_solsd_part(np)%val(ipart), forc_solld_part(np)%val(ipart),  &
+#endif 
                         forc_us_part(np)%val(ipart),    forc_vs_part(np)%val(ipart), &
 
                         ! optional factors for complex downscaling
@@ -838,6 +997,10 @@ CONTAINS
                         forc_rho_grid(np)%val(ipart),   forc_prc_grid(np)%val(ipart),    &
                         forc_prl_grid(np)%val(ipart),   forc_lwrad_grid(np)%val(ipart),  &
                         forc_hgt_grid(np)%val(ipart),   forc_swrad_grid(np)%val(ipart),  &
+#ifdef CCPL 
+                        forc_sols_grid(np)%val(ipart),  forc_soll_grid(np)%val(ipart),   &
+                        forc_solsd_grid(np)%val(ipart), forc_solld_grid(np)%val(ipart),  &
+#endif
                         forc_us_grid(np)%val(ipart),    forc_vs_grid(np)%val(ipart),     &
 
                         ! topography-based factor on patch
@@ -853,6 +1016,10 @@ CONTAINS
                         forc_prc_part(np)%val(ipart),   forc_prl_part(np)%val(ipart),    &
 
                         forc_frl_part(np)%val(ipart),   forc_swrad_part(np)%val(ipart),  &
+#ifdef CCPL 
+                        forc_sols_part(np)%val(ipart),  forc_soll_part(np)%val(ipart),   &
+                        forc_solsd_part(np)%val(ipart), forc_solld_part(np)%val(ipart),  &
+#endif 
                         forc_us_part(np)%val(ipart),    forc_vs_part(np)%val(ipart) &
                         )
 
@@ -873,7 +1040,7 @@ CONTAINS
          CALL mg2p_forc%part2pset (forc_swrad_part,  forc_swrad )
          CALL mg2p_forc%part2pset (forc_us_part,     forc_us    )
          CALL mg2p_forc%part2pset (forc_vs_part,     forc_vs    )
-
+         
          IF (p_is_worker) THEN
             IF (numpatch > 0) THEN
                forc_psrf = forc_pbot
@@ -955,6 +1122,17 @@ CONTAINS
          CALL mg2p_forc%part2pset (forc_swrad_part,  forc_swrad )
 #endif
 
+#ifdef CCPL 
+         ! Conservation of short-waves radiation components in the grid of forcing
+         CALL mg2p_forc%normalize (forc_xy_sols,     forc_sols_part )
+         CALL mg2p_forc%normalize (forc_xy_soll,     forc_soll_part )
+         CALL mg2p_forc%normalize (forc_xy_solsd,    forc_solsd_part)
+         CALL mg2p_forc%normalize (forc_xy_solld,    forc_solld_part)
+         CALL mg2p_forc%part2pset (forc_sols_part,   forc_sols )
+         CALL mg2p_forc%part2pset (forc_soll_part,   forc_soll )
+         CALL mg2p_forc%part2pset (forc_solsd_part,  forc_solsd)
+         CALL mg2p_forc%part2pset (forc_solld_part,  forc_solld)
+#else 
          ! divide fractions of downscaled shortwave radiation
          IF (p_is_worker) THEN
             DO j = 1, numpatch
@@ -984,6 +1162,7 @@ CONTAINS
                   forc_solld(j) = a*difrat*(1.0-vnrat)
             ENDDO
          ENDIF
+#endif 
       ENDIF
 
 #ifdef RangeCheck
@@ -1178,6 +1357,11 @@ CONTAINS
       IF (trim(DEF_forcing%dataset) == 'POINT' .or. trim(DEF_forcing%dataset) == 'CPL7' ) THEN
          CALL gforc%define_by_ndims (360, 180)
       ELSE
+#ifdef CCPL 
+         IF (trim(DEF_forcing%dataset) == 'CCPL' ) then
+            CALL gforc%define_from_file (DEF_file_mesh_atm)
+         ELSE 
+#endif 
 
          mtstamp = idate
 
@@ -1211,10 +1395,18 @@ CONTAINS
 
          deallocate (lat_in)
          deallocate (lon_in)
+
+#ifdef CCPL 
+         ENDIF
+#endif 
       ENDIF
 
       CALL gforc%set_rlon ()
       CALL gforc%set_rlat ()
+
+#ifdef CCPL 
+      CALL mesh_atm_build (gforc, DEF_file_mesh_atm, numelm_atm, mesh_atm, nelm_blk_atm, mesh_atm_pio, elmid_atm)
+#endif 
 
    END SUBROUTINE metread_latlon
 

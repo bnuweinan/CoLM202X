@@ -1,8 +1,8 @@
 ! 1. Spatial structure:
 !    Select one of the following options.
-#define GRIDBASED
+#undef GRIDBASED
 #undef CATCHMENT
-#undef UNSTRUCTURED
+#define UNSTRUCTURED
 #undef SinglePoint
 
 ! 2. Land subgrid type classification:
@@ -103,4 +103,6 @@
 #undef EXTERNAL_LAKE
 
 ! 12. Hyperspectral scheme.
-#define HYPERSPECTRAL
+#undef HYPERSPECTRAL
+
+#define CCPL

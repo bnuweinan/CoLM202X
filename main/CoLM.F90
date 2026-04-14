@@ -118,6 +118,12 @@ PROGRAM CoLM
    USE MOD_Lake_Namelist
 #endif
 
+#ifdef CCPL
+   USE CCPL_interface_mod
+   USE MOD_Coupling_CCPL
+   USE MOD_Vars_lnd2atm
+#endif
+
    IMPLICIT NONE
 
    character(len=256) :: nlfile
@@ -153,6 +159,11 @@ PROGRAM CoLM
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
    integer*8 :: start_time, end_time, c_per_sec, time_used
+
+#ifdef CCPL
+   integer :: colm_comm
+   logical :: interface_status
+#endif
 !-----------------------------------------------------------------------
 
 #ifdef USEMPI
@@ -170,7 +181,13 @@ PROGRAM CoLM
       print*,num_procs,"for CoLM"
       CALL spmd_init (new_comm)
 #else
+#ifdef CCPL 
+      colm_comm = CCPL_NULL_COMM
+      CoLM_comp_id = CCPL_register_component(-1, "CoLM", "lnd", colm_comm, .true., .true., "register CoLM")
+      CALL spmd_init (colm_comm)
+#else
       CALL spmd_init ()
+#endif
 #endif
 #endif
 
@@ -337,7 +354,11 @@ PROGRAM CoLM
       ! Initialize meteorological forcing data module
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
+#ifndef CCPL
       CALL allocate_2D_Forcing (gforc)
+#else
+      CALL register_component_coupling_configuration
+#endif
 
       ! Initialize history data module
       CALL hist_init (dir_hist)
@@ -429,9 +450,15 @@ PROGRAM CoLM
          Julian_1day_p = int(calendarday(jdate)-1)/1*1 + 1
          Julian_8day_p = int(calendarday(jdate)-1)/8*8 + 1
 
+#ifndef CCPL 
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing, is_spinup)
+#else
+         ! Import meteorological forcing from atm models
+         ! ----------------------------------------------------------------------
+         CALL read_forcing (jdate, dir_forcing, CoLM_comp_id, is_spinup)
+#endif
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -502,6 +529,7 @@ PROGRAM CoLM
             CALL grid_riverlake_flow (idate(1), deltim)
          ENDIF
 #endif
+
 #if (defined CaMa_Flood)
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
@@ -521,6 +549,20 @@ PROGRAM CoLM
          ! Write out the model histroy file
          ! ----------------------------------------------------------------------
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+
+#ifdef CCPL 
+         CALL collect_data_from_patch_to_atmelm (mg2p_forc, numelm_atm, mesh_atm)
+
+         CALL mpi_barrier (p_comm_glb, p_err)
+
+         if (p_is_master) write(6,*) 'CoLM sending variables to atm models'
+         interface_status = CCPL_execute_interface_using_name(CoLM_comp_id, "send_data_to_atm", .false., annotation="execute interface for CoLM sending data to atmosphere")
+
+         if (.not. interface_status) then
+            if (p_is_master) write(6,*) 'Error: CoLM failed to send variables to atm models'
+            CALL CCPL_abort("Check errors for CoLM sending data.")
+         end if 
+#endif
 
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
@@ -661,6 +703,10 @@ PROGRAM CoLM
 
          istep = istep + 1
 
+#ifdef CCPL 
+         call CCPL_do_restart_write_IO(CoLM_comp_id, .false.)
+         call CCPL_advance_time(CoLM_comp_id, "CoLM advances time for one step")
+#endif 
       ENDDO TIMELOOP
 
       CALL deallocate_TimeInvariants ()
@@ -668,6 +714,9 @@ PROGRAM CoLM
       CALL deallocate_1D_Forcing     ()
       CALL deallocate_1D_Fluxes      ()
       CALL mesh_free_mem             ()
+#ifdef CCPL 
+      CALL deallocate_vars_lnd2atm   ()
+#endif
 
 #if (defined CatchLateralFlow)
       CALL lateral_flow_final ()
@@ -715,7 +764,15 @@ PROGRAM CoLM
          CALL hist_writeback_exit ()
       ENDIF
 
+#ifndef CCPL
       CALL spmd_exit
+#else
+      IF (allocated(p_itis_io       )) deallocate (p_itis_io       )
+      IF (allocated(p_address_io    )) deallocate (p_address_io    )
+      IF (allocated(p_itis_worker   )) deallocate (p_itis_worker   )
+      if (allocated(p_address_worker)) deallocate (p_address_worker)
+      CALL CCPL_finalize(.true.)
+#endif
 #endif
 
 END PROGRAM CoLM
