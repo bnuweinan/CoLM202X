@@ -294,8 +294,8 @@ MODULE MOD_Namelist
    logical :: DEF_USE_BEDROCK               = .false.
 
    ! ----- Ozone stress -----
-   logical :: DEF_USE_OZONESTRESS = .true.
-   logical :: DEF_USE_OZONEDATA   = .true.
+   logical :: DEF_USE_OZONESTRESS = .false.
+   logical :: DEF_USE_OZONEDATA   = .false.
 
    ! ----- SNICAR model related -----
    logical :: DEF_USE_SNICAR                  = .false.
@@ -1041,6 +1041,7 @@ CONTAINS
    logical :: fexists
    integer :: ivar
    integer :: ierr
+   character(len=256) :: iomesg
 
    namelist /nl_colm/                         &
       DEF_CASE_NAME,                          &
@@ -1269,15 +1270,17 @@ CONTAINS
       IF (p_is_master) THEN
 
          open(10, status='OLD', file=nlfile, form="FORMATTED")
-         read(10, nml=nl_colm, iostat=ierr)
+         read(10, nml=nl_colm, iostat=ierr, iomsg=iomesg)
          IF (ierr /= 0) THEN
+            write(*,*) 'ERROR in ', trim(nlfile), ' : ', trim(iomesg)
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(nlfile))
          ENDIF
          close(10)
 
          open(10, status='OLD', file=trim(DEF_forcing_namelist), form="FORMATTED")
-         read(10, nml=nl_colm_forcing, iostat=ierr)
+         read(10, nml=nl_colm_forcing, iostat=ierr, iomsg=iomesg)
          IF (ierr /= 0) THEN
+            write(*,*) 'ERROR in ', trim(DEF_forcing_namelist), ' : ', trim(iomesg)
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(DEF_forcing_namelist))
          ENDIF
          close(10)
@@ -1924,8 +1927,9 @@ CONTAINS
             write(*,*) 'History namelist file: ', trim(DEF_HIST_vars_namelist), ' does not exist.'
          ELSE
             open(10, status='OLD', file=trim(DEF_HIST_vars_namelist), form="FORMATTED")
-            read(10, nml=nl_colm_history, iostat=ierr)
+            read(10, nml=nl_colm_history, iostat=ierr, iomsg=iomesg)
             IF (ierr /= 0) THEN
+               write(*,*) 'ERROR in ', trim(DEF_HIST_vars_namelist), ' : ', trim(iomesg)
                CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: ' &
                   // trim(DEF_HIST_vars_namelist))
             ENDIF
