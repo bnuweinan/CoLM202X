@@ -1267,7 +1267,7 @@ CONTAINS
       rib  = min(5.,zol*ustar**2/(vonkar*vonkar/fh*um**2))
 
 ! radiative temperature
-      trad = (olrg/stefnc)**0.25
+      trad = (olrg/stefnc/emg)**0.25
 
 ! solar absorption below the surface.
       fgrnd = sabg + forc_frl - olrg - fseng - htvp*fevpg

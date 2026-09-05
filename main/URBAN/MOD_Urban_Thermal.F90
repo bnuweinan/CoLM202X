@@ -575,6 +575,7 @@ CONTAINS
    real(r8), allocatable :: dT(:)     ! Vectors of incident radiation on each surface
    real(r8), allocatable :: SkyVF(:)  ! View factor to sky
    real(r8), allocatable :: VegVF(:)  ! View factor to vegetation
+   real(r8), allocatable :: UrbVF(:)  ! View factor from sky to wall, ground and veg
    real(r8), allocatable :: fcover(:) ! fractional cover of roof, wall, ground and veg
 
 
@@ -755,6 +756,7 @@ CONTAINS
          allocate ( dBdT(5)     )
          allocate ( SkyVF(5)    )
          allocate ( VegVF(5)    )
+         allocate ( UrbVF(5)    )
          allocate ( fcover(0:5) )
          allocate ( dT(0:5)     )
 
@@ -763,7 +765,7 @@ CONTAINS
                                 theta, hlr, froof, fgper, hroof, forc_frl, &
                                 twsun, twsha, tgimp, tgper, ewall, egimp, &
                                 egper, lai, sai, fveg, (htop+hbot)/2., &
-                                ev, Ainv, B, B1, dBdT, SkyVF, VegVF, fcover)
+                                ev, Ainv, B, B1, dBdT, SkyVF, VegVF, UrbVF, fcover)
       ELSE
 
          allocate ( Ainv(4,4)   )
@@ -773,6 +775,7 @@ CONTAINS
          allocate ( B1(4)       )
          allocate ( dBdT(4)     )
          allocate ( SkyVF(4)    )
+         allocate ( UrbVF(4)    )
          allocate ( fcover(0:4) )
          allocate ( dT(0:4)     )
 
@@ -780,7 +783,7 @@ CONTAINS
          CALL UrbanOnlyLongwave ( &
                                  theta, hlr, froof, fgper, hroof, forc_frl, &
                                  twsun, twsha, tgimp, tgper, ewall, egimp, egper, &
-                                 Ainv, B, B1, dBdT, SkyVF, fcover)
+                                 Ainv, B, B1, dBdT, SkyVF, UrbVF, fcover)
 
          ! calculate longwave radiation abs, for UrbanOnlyLongwave
          !-------------------------------------------
@@ -1296,6 +1299,16 @@ CONTAINS
       ENDIF
 
       ! radiative temperature
+      emis = eroof*froof &
+             + ewall*fg*UrbVF(1) + ewall*fg*UrbVF(2) &
+             + egimp*fg*UrbVF(3) + egper*fg*UrbVF(4)
+
+      IF ( doveg ) THEN
+         emis = emis + ev*fg*UrbVF(5)
+      ENDIF
+
+      emis = emis * (1-flake) + emis_lake * flake
+
       trad = (olrg/stefnc)**0.25
 
 ! averaged bulk surface emissivity

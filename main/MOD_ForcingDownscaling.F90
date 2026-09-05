@@ -1108,14 +1108,14 @@ CONTAINS
       forc_sols_c = min(forc_sols_c, &
                forc_sols_g * (1._r8 + shortwave_downscaling_limit))
       forc_sols_c = max(forc_sols_c, &
-               forc_sols_g * (1._r8 + shortwave_downscaling_limit))
+               forc_sols_g * (1._r8 - shortwave_downscaling_limit))
       ! Ensure that the denominator is not 0 during shortwave normalization
       IF (forc_sols_c < 1.e-4) forc_sols_c = 0.0001
 
       forc_soll_c = min(forc_soll_c, &
                forc_soll_g * (1._r8 + shortwave_downscaling_limit))
       forc_soll_c = max(forc_soll_c, &
-               forc_soll_g * (1._r8 + shortwave_downscaling_limit))
+               forc_soll_g * (1._r8 - shortwave_downscaling_limit))
       ! Ensure that the denominator is not 0 during shortwave normalization
       IF (forc_soll_c < 1.e-4) forc_soll_c = 0.0001
 

@@ -308,7 +308,7 @@ CONTAINS
       emis = emg
 
 ! radiative temperature
-      trad = (olrg/stefnc)**0.25
+      trad = (olrg/stefnc/emg)**0.25
 
 !=======================================================================
 ! [6] energy balance error

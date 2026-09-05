@@ -79,37 +79,29 @@ CONTAINS
    type(block_data_int32_2d), intent(out) :: elmid_atm
 
    ! Local Variables
-   integer  :: iworker
-   integer  :: nelm, ie, je
+   integer  :: nelm, ie, je, dsp
    integer  :: iblkme, iblk, jblk, xloc, yloc
    integer  :: xp, yp, xblk, yblk, npxl, ipxl, ix, iy
-   integer  :: iloc, iloc_max(2)
-   integer  :: iproc, idest, isrc
+   integer  :: iworker, iproc, idest, isrc, iloc, iloc_max(2)
    integer  :: ysp, ynp, nyp
    integer  :: xwp, xep, nxp
    logical  :: is_new
-   integer  :: nsend, nrecv, irecv
-   integer  :: smesg(5), rmesg(5), blktag, elmtag
+   integer  :: smesg(6), rmesg(6), blktag, nsend, nrecv, irecv
+   integer  :: iblk_p, jblk_p, nelm_glb
 
    integer, allocatable :: nelm_worker(:)
 
    integer*8 :: elmid
    integer*8, allocatable :: elist(:), elist2(:,:), sbuf64(:), elist_recv(:)
 
-   integer, allocatable :: iaddr(:)
-   integer, allocatable :: xlist2(:,:), ylist2(:,:)
-   integer, allocatable :: sbuf(:), ipt2(:,:)
-   integer, allocatable :: xlist_recv(:), ylist_recv(:)
-   integer, allocatable :: npxl_blk(:,:)
-   logical, allocatable :: msk2(:,:), msk(:)
-   integer, allocatable :: xlist(:), ylist(:)
-   type(irregular_elm_type_atm), allocatable :: meshtmp (:)
-   logical, allocatable :: work_done(:)
-   integer, allocatable :: blkdsp(:,:), blkcnt(:,:)
-   integer :: iblk_p, jblk_p
-   integer :: nelm_glb
+   integer, allocatable :: iaddr(:), elmindx(:), order(:)
+   integer, allocatable :: xlist(:), ylist(:), npxl_(:), xlist_recv(:), ylist_recv(:), sbuf(:)
+   logical, allocatable :: msk(:), work_done(:)
 
-   integer, allocatable :: elmindx(:), order(:)
+   integer, allocatable :: xlist2(:,:), ylist2(:,:), ipt2(:,:), npxl_blk(:,:), blkdsp(:,:), blkcnt(:,:)
+   logical, allocatable :: msk2(:,:)
+
+   type(irregular_elm_type_atm), allocatable :: meshtmp (:)
 
       IF (p_is_io) THEN
          CALL allocate_block_data (gforc, elmid_atm)
@@ -495,23 +487,65 @@ CONTAINS
 
 #ifdef USEMPI
       IF (p_is_worker) THEN
-         DO ie = 1, nelm
+         DO iblk = 1, gblock%nxblk
+            DO jblk = 1, gblock%nyblk
 
-            idest = gblock%pio (meshtmp(ie)%xblk, meshtmp(ie)%yblk)
+               idest = gblock%pio(iblk,jblk)
 
-            ! send(09)
-            elmtag = mod(meshtmp(ie)%indx, 30000)
-            smesg(1:5) = (/p_iam_glb, elmtag, meshtmp(ie)%xblk, meshtmp(ie)%yblk, meshtmp(ie)%npxl/)
-            CALL mpi_send (smesg(1:5), 5, MPI_INTEGER, idest, mpi_tag_mesg, p_comm_glb, p_err)
+               nsend = 0
+               npxl  = 0
+               DO ie = 1, nelm
+                  IF ((meshtmp(ie)%xblk == iblk) .and. (meshtmp(ie)%yblk == jblk)) THEN
+                     nsend = nsend + 1
+                     npxl  = npxl  + meshtmp(ie)%npxl
+                  ENDIF
+               ENDDO
 
-            CALL mpi_send (meshtmp(ie)%indx, 1, MPI_INTEGER8, idest, elmtag, p_comm_glb, p_err)
+               IF (nsend > 0) THEN
 
-            ! send(10)
-            CALL mpi_send (meshtmp(ie)%ilon, meshtmp(ie)%npxl, MPI_INTEGER, &
-               idest, elmtag, p_comm_glb, p_err)
-            ! send(11)
-            CALL mpi_send (meshtmp(ie)%ilat, meshtmp(ie)%npxl, MPI_INTEGER, &
-               idest, elmtag, p_comm_glb, p_err)
+                  allocate (elist (nsend))
+                  allocate (npxl_ (nsend))
+                  allocate (xlist (npxl ))
+                  allocate (ylist (npxl ))
+
+                  nsend = 0
+                  npxl  = 0
+                  DO ie = 1, nelm
+                     IF ((meshtmp(ie)%xblk == iblk) .and. (meshtmp(ie)%yblk == jblk)) THEN
+
+                        nsend = nsend + 1
+
+                        elist(nsend) = meshtmp(ie)%indx
+                        npxl_(nsend) = meshtmp(ie)%npxl
+
+                        xlist(npxl+1:npxl+meshtmp(ie)%npxl) = meshtmp(ie)%ilon
+                        ylist(npxl+1:npxl+meshtmp(ie)%npxl) = meshtmp(ie)%ilat
+
+                        npxl = npxl + meshtmp(ie)%npxl
+                     ENDIF
+                  ENDDO
+
+                  blktag = p_iam_glb + 1000
+
+                  ! send(09)
+                  smesg(1:6) = (/p_iam_glb, blktag, iblk, jblk, nsend, npxl/)
+                  CALL mpi_send (smesg(1:6), 6, MPI_INTEGER, idest, mpi_tag_mesg, p_comm_glb, p_err)
+
+                  ! send(10)
+                  CALL mpi_send (elist, nsend, MPI_INTEGER8, idest, blktag, p_comm_glb, p_err)
+                  CALL mpi_send (npxl_, nsend, MPI_INTEGER,  idest, blktag, p_comm_glb, p_err)
+
+                  ! send(11)
+                  CALL mpi_send (xlist, npxl, MPI_INTEGER, idest, blktag, p_comm_glb, p_err)
+                  CALL mpi_send (ylist, npxl, MPI_INTEGER, idest, blktag, p_comm_glb, p_err)
+
+                  deallocate (elist)
+                  deallocate (npxl_)
+                  deallocate (xlist)
+                  deallocate (ylist)
+
+               ENDIF
+            ENDDO
          ENDDO
       ENDIF
 
@@ -525,35 +559,57 @@ CONTAINS
 
             allocate (blkcnt (gblock%nxblk, gblock%nyblk))
             blkcnt(:,:) = 0
-            DO ie = 1, numelm_atm
+
+            DO WHILE (sum(blkcnt) < numelm_atm)
 
                ! recv(09)
-               CALL mpi_recv (rmesg(1:5), 5, MPI_INTEGER, MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (rmesg(1:6), 6, MPI_INTEGER, MPI_ANY_SOURCE, mpi_tag_mesg, p_comm_glb, p_stat, p_err)
                isrc   = rmesg(1)
-               elmtag = rmesg(2)
+               blktag = rmesg(2)
                xblk   = rmesg(3)
                yblk   = rmesg(4)
-               npxl   = rmesg(5)
+               nrecv  = rmesg(5)
+               npxl   = rmesg(6)
 
-               CALL mpi_recv (elmid, 1, MPI_INTEGER8, isrc, elmtag, p_comm_glb, p_stat, p_err)
-
-               blkcnt(xblk,yblk) = blkcnt(xblk,yblk) + 1
-               je = blkdsp(xblk,yblk) + blkcnt(xblk,yblk)
-
-               mesh_atm(je)%indx = elmid
-               mesh_atm(je)%xblk = xblk
-               mesh_atm(je)%yblk = yblk
-               mesh_atm(je)%npxl = npxl
-
-               allocate (mesh_atm(je)%ilon (mesh_atm(je)%npxl))
-               allocate (mesh_atm(je)%ilat (mesh_atm(je)%npxl))
+               allocate (elist (nrecv))
+               allocate (npxl_ (nrecv))
+               allocate (xlist (npxl ))
+               allocate (ylist (npxl ))
 
                ! recv(10)
-               CALL mpi_recv (mesh_atm(je)%ilon, mesh_atm(je)%npxl, MPI_INTEGER, &
-                  isrc, elmtag, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (elist, nrecv, MPI_INTEGER8, isrc, blktag, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (npxl_, nrecv, MPI_INTEGER,  isrc, blktag, p_comm_glb, p_stat, p_err)
+
                ! recv(11)
-               CALL mpi_recv (mesh_atm(je)%ilat, mesh_atm(je)%npxl, MPI_INTEGER, &
-                  isrc, elmtag, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (xlist, npxl, MPI_INTEGER, isrc, blktag, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (ylist, npxl, MPI_INTEGER, isrc, blktag, p_comm_glb, p_stat, p_err)
+
+               dsp = 0
+               DO ie = 1, nrecv
+
+                  je = blkdsp(xblk,yblk) + blkcnt(xblk,yblk) + ie
+
+                  mesh_atm(je)%indx = elist(ie)
+                  mesh_atm(je)%xblk = xblk
+                  mesh_atm(je)%yblk = yblk
+                  mesh_atm(je)%npxl = npxl_(ie)
+
+                  allocate (mesh_atm(je)%ilon (npxl_(ie)))
+                  allocate (mesh_atm(je)%ilat (npxl_(ie)))
+
+                  mesh_atm(je)%ilon = xlist(dsp+1:dsp+npxl_(ie))
+                  mesh_atm(je)%ilat = ylist(dsp+1:dsp+npxl_(ie))
+
+                  dsp = dsp + npxl_(ie)
+
+               ENDDO
+
+               blkcnt(xblk,yblk) = blkcnt(xblk,yblk) + nrecv
+
+               deallocate (elist)
+               deallocate (npxl_)
+               deallocate (xlist)
+               deallocate (ylist)
 
             ENDDO
 

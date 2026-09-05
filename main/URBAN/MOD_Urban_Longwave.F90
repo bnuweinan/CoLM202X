@@ -22,7 +22,7 @@ CONTAINS
 
    SUBROUTINE UrbanOnlyLongwave (theta, HL, fb, fgper, H, LW, &
               twsun, twsha, tgimp, tgper, ewall, egimp, egper, &
-              Ainv, B, B1, dBdT, SkyVF, fcover)
+              Ainv, B, B1, dBdT, SkyVF, UrbVF, fcover)
 
 !-----------------------------------------------------------------------
 !                Sun
@@ -85,6 +85,7 @@ CONTAINS
         B1(4),      &! Vectors of incident radiation on each surface
         dBdT(4),    &! Vectors of incident radiation on each surface
         SkyVF(4),   &! View factor to sky
+        UrbVF(4),   &! Viewall factor from sky to wall, ground and veg
         fcover(0:4)  ! View factor to sky
 
 !-------------------------- Local Variables ----------------------------
@@ -212,6 +213,11 @@ CONTAINS
       SkyVF(1:2) = Fws
       SkyVF(3:4) = Fgs
 
+      UrbVF(1)   = Fsw*fwsun
+      UrbVF(2)   = Fsw*fwsha
+      UrbVF(3)   = Fsg*fgimp
+      UrbVF(4)   = Fsg*fgper
+
       fcover(0) = fb
       fcover(1) = 4*fwsun*HL*fb
       fcover(2) = 4*fwsha*HL*fb
@@ -254,7 +260,7 @@ CONTAINS
 
    SUBROUTINE UrbanVegLongwave (theta, HL, fb, fgper, H, LW, &
               twsun, twsha, tgimp, tgper, ewall, egimp, egper, lai, sai, fv, hv, &
-              ev, Ainv, B, B1, dBdT, SkyVF, VegVF, fcover)
+              ev, Ainv, B, B1, dBdT, SkyVF, VegVF, UrbVF, fcover)
 
 !-----------------------------------------------------------------------
 !              Sun
@@ -315,6 +321,7 @@ CONTAINS
         dBdT(5),    &! Vectors of incident radiation on each surface
         SkyVF(5),   &! View factor to sky
         VegVF(5),   &! View factor to sky
+        UrbVF(5),   &! Viewall factor from sky to wall, ground and veg
         fcover(0:5)  ! View factor to sky
 
 !-------------------------- Local Variables ----------------------------
@@ -600,6 +607,12 @@ CONTAINS
       SkyVF(1:2) = Fws_
       SkyVF(3:4) = Fgs_
       SkyVF(5)   = Fvs
+
+      UrbVF(1)   = Fsw_*fwsun
+      UrbVF(2)   = Fsw_*fwsha
+      UrbVF(3)   = Fsg_*fgimp
+      UrbVF(4)   = Fsg_*fgper
+      UrbVF(5)   = Fsv*(1-Td)
 
       VegVF(1:2) = Fwv
       VegVF(3:4) = Fgv

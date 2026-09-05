@@ -1061,6 +1061,8 @@ CONTAINS
                   IF ((forc_us(np)==spval).or.(forc_vs(np)==spval)) cycle
                   CALL downscale_wind_simple(forc_us(np), forc_vs(np), slp_type_patches(:,np), &
                            asp_type_patches(:,np), cur_patches(np))
+                  if(abs(forc_us(np)) > 42.) forc_us(np) = forc_us(np)/abs(forc_us(np)) * 42.0
+                  if(abs(forc_vs(np)) > 42.) forc_vs(np) = forc_vs(np)/abs(forc_vs(np)) * 42.0
                ENDDO
 
             ENDIF

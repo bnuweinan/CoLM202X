@@ -1364,7 +1364,7 @@ ENDIF
          write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,fgrnd
       ENDIF
 
-      trad = (olrg/stefnc)**0.25
+      trad = (olrg/stefnc/emg)**0.25
 
 ! additional variables required by WRF and RSM model
       IF (lai+sai <= 1e-6) THEN

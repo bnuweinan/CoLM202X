@@ -760,7 +760,7 @@ ENDIF
    END SUBROUTINE spatial_mapping_build_arealweighted
 
    !-----------------------------------------------------
-   SUBROUTINE spatial_mapping_pset2grid (this, pdata, gdata, spv, msk)
+   SUBROUTINE spatial_mapping_pset2grid (this, pdata, gdata, spv, msk, input_mode)
 
    USE MOD_Precision
    USE MOD_Grid
@@ -777,14 +777,21 @@ ENDIF
    real(r8), intent(in), optional :: spv
    logical,  intent(in), optional :: msk(:)
 
+   character(len=*), intent(in), optional :: input_mode
+
    ! Local variables
    integer :: iproc, idest, isrc
    integer :: ig, ilon, ilat, xblk, yblk, xloc, yloc, iloc, iset, ipart
 
    real(r8), allocatable :: gbuff(:)
    type(pointer_real8_1d), allocatable :: pbuff(:)
+   character(len=256) :: inmode
+   real(r8) :: sumwt
 
       IF (p_is_worker) THEN
+
+         inmode = 'average'
+         IF (present(input_mode)) inmode = trim(input_mode)
 
          allocate (pbuff (0:p_np_io-1))
 
@@ -810,6 +817,12 @@ ENDIF
                IF (.not. msk(iset)) CYCLE
             ENDIF
 
+            IF ((this%npart(iset) > 0) .and. (trim(inmode) == 'total')) THEN
+               sumwt = sum(this%areapart(iset)%val)
+            ELSE
+               sumwt = 1.
+            ENDIF
+
             DO ipart = 1, this%npart(iset)
                iproc = this%address(iset)%val(1,ipart)
                iloc  = this%address(iset)%val(2,ipart)
@@ -817,14 +830,14 @@ ENDIF
                IF (present(spv)) THEN
                   IF (pbuff(iproc)%val(iloc) /= spv) THEN
                      pbuff(iproc)%val(iloc) = pbuff(iproc)%val(iloc) &
-                        + pdata(iset) * this%areapart(iset)%val(ipart)
+                        + pdata(iset)/sumwt * this%areapart(iset)%val(ipart)
                   ELSE
                      pbuff(iproc)%val(iloc) = &
-                        pdata(iset) * this%areapart(iset)%val(ipart)
+                        pdata(iset)/sumwt * this%areapart(iset)%val(ipart)
                   ENDIF
                ELSE
                   pbuff(iproc)%val(iloc) = pbuff(iproc)%val(iloc) &
-                     + pdata(iset) * this%areapart(iset)%val(ipart)
+                     + pdata(iset)/sumwt * this%areapart(iset)%val(ipart)
                ENDIF
             ENDDO
          ENDDO
@@ -833,7 +846,7 @@ ENDIF
          DO iproc = 0, p_np_io-1
             IF (this%glist(iproc)%ng > 0) THEN
                idest = p_address_io(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
          ENDDO
@@ -856,7 +869,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_worker(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                gbuff = pbuff(0)%val
@@ -882,21 +895,37 @@ ENDIF
             ENDIF
          ENDDO
 
-         IF (.not. present(spv)) THEN
+         IF (trim(inmode) == 'total') THEN
 
-            WHERE (this%areagrid > 0.)
-               gdata = gdata / this%areagrid
-            ELSEWHERE
-               gdata = spval
-            ENDWHERE
+            IF (.not. present(spv)) THEN
+
+               WHERE (this%areagrid <= 0.) gdata = spval
+
+            ELSE
+
+               WHERE ((this%areagrid <= 0.) .or. (gdata == spv)) gdata = spval
+
+            ENDIF
 
          ELSE
 
-            WHERE ((this%areagrid > 0.) .and. (gdata /= spv))
-               gdata = gdata / this%areagrid
-            ELSEWHERE
-               gdata = spval
-            ENDWHERE
+            IF (.not. present(spv)) THEN
+   
+               WHERE (this%areagrid > 0.)
+                  gdata = gdata / this%areagrid
+               ELSEWHERE
+                  gdata = spval
+               ENDWHERE
+   
+            ELSE
+   
+               WHERE ((this%areagrid > 0.) .and. (gdata /= spv))
+                  gdata = gdata / this%areagrid
+               ELSEWHERE
+                  gdata = spval
+               ENDWHERE
+   
+            ENDIF
 
          ENDIF
 
@@ -976,7 +1005,7 @@ ENDIF
          DO iproc = 0, p_np_io-1
             IF (this%glist(iproc)%ng > 0) THEN
                idest = p_address_io(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
          ENDDO
@@ -995,7 +1024,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_worker(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                gbuff = pbuff(0)%val
@@ -1081,7 +1110,7 @@ ENDIF
          DO iproc = 0, p_np_io-1
             IF (this%glist(iproc)%ng > 0) THEN
                idest = p_address_io(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
          ENDDO
@@ -1101,7 +1130,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_worker(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                gbuff = pbuff(0)%val
@@ -1167,7 +1196,7 @@ ENDIF
 
 #ifdef USEMPI
                idest = p_address_worker(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
                deallocate (gbuff)
@@ -1188,7 +1217,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_io(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                pbuff(0)%val = gbuff
@@ -1269,7 +1298,7 @@ ENDIF
 
 #ifdef USEMPI
                idest = p_address_worker(iproc)
-               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
 
                deallocate (gbuff)
@@ -1290,7 +1319,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_io(iproc)
-               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                pbuff(0)%val = gbuff
@@ -1367,7 +1396,7 @@ ENDIF
          DO iproc = 0, p_np_io-1
             IF (this%glist(iproc)%ng > 0) THEN
                idest = p_address_io(iproc)
-               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_send (pbuff(iproc)%val, this%glist(iproc)%ng, MPI_REAL8, &
                   idest, mpi_tag_data, p_comm_glb, p_err)
             ENDIF
          ENDDO
@@ -1386,7 +1415,7 @@ ENDIF
 
 #ifdef USEMPI
                isrc = p_address_worker(iproc)
-               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_DOUBLE, &
+               CALL mpi_recv (gbuff, this%glist(iproc)%ng, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
 #else
                gbuff = pbuff(0)%val
@@ -1451,7 +1480,7 @@ ENDIF
 
       IF (p_is_io) THEN
 
-         WHERE (sumdata /= this%missing_value)
+         WHERE ((sumdata /= this%missing_value) .and. (sumdata /= 0.))
             sumdata = gdata / sumdata
          ENDWHERE
 
